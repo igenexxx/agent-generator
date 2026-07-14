@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  tidy:
+    desc: Tidy Go dependencies
+    cmds:
+      - go mod tidy
+
+  run:
+    desc: Run the generator CLI combine
+    cmds:
+      - go run main.go
+
+  test:
+    desc: Run test cases
+    cmds:
+      - go test -v ./...
+
+  build:
+    desc: Build the binary
+    cmds:
+      - go build -o bin/generator main.go

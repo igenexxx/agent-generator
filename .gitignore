@@ -1,0 +1,8 @@
+# Binaries
+bin/
+*.exe
+*.test
+*.prof
+
+# Environment variables
+.env
