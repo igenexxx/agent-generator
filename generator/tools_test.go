@@ -2,6 +2,8 @@ package generator
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,5 +201,98 @@ func TestInstallSkills(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFetchURL(t *testing.T) {
+	// Create mock server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><body><h1>Hello ADK Go</h1></body></html>"))
+	}))
+	defer ts.Close()
+
+	ctx := &mockContext{ctx: context.Background()}
+
+	tests := []struct {
+		name    string
+		args    FetchURLArgs
+		wantErr bool
+		contain string
+	}{
+		{
+			name: "empty url (negative test)",
+			args: FetchURLArgs{
+				URL: "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid scheme (negative test)",
+			args: FetchURLArgs{
+				URL: "ftp://example.com",
+			},
+			wantErr: true,
+		},
+		{
+			name: "happy path fetch HTML",
+			args: FetchURLArgs{
+				URL: ts.URL,
+			},
+			wantErr: false,
+			contain: "Hello ADK Go",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := fetchURLHandler(ctx, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("fetchURLHandler() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				if !strings.Contains(res.Content, tt.contain) {
+					t.Errorf("expected content containing %q, got %q", tt.contain, res.Content)
+				}
+			}
+		})
+	}
+}
+
+func TestWebSearch(t *testing.T) {
+	ctx := &mockContext{ctx: context.Background()}
+
+	tests := []struct {
+		name    string
+		args    WebSearchArgs
+		wantErr bool
+	}{
+		{
+			name: "empty query (negative test)",
+			args: WebSearchArgs{
+				Query: "",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := webSearchHandler(ctx, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("webSearchHandler() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestUpdateAgentsCLI(t *testing.T) {
+	ctx := &mockContext{ctx: context.Background()}
+	// Test invocation runs without panic
+	res, err := updateAgentsCLI(ctx, UpdateAgentsCLIArgs{})
+	if err != nil {
+		t.Logf("updateAgentsCLI returned error (might be expected if tools missing): %v", err)
+	} else {
+		t.Logf("updateAgentsCLI status: %s", res.Status)
 	}
 }

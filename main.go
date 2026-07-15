@@ -55,7 +55,7 @@ func main() {
 		log.Fatalf("Failed to initialize model: %v", err)
 	}
 
-	genAgent, err := generator.NewGeneratorAgent(model)
+	genAgent, err := generator.NewGeneratorAgent(ctx, model)
 	if err != nil {
 		log.Fatalf("Failed to create generator agent: %v", err)
 	}
@@ -70,22 +70,23 @@ func main() {
 		fmt.Println("[1] Scaffold a new Go ADK v2.0 Agent project")
 		fmt.Println("[2] Generate OKF Documentation Bundle")
 		fmt.Println("[3] Install or Copy Agent Skills (Global/Local)")
-		fmt.Println("[4] Talk with the Assistant (Free Chat)")
-		fmt.Println("[5] Exit")
+		fmt.Println("[4] Update agents-cli skills and rewrite them for Go ADK v2.0")
+		fmt.Println("[5] Talk with the Assistant (Free Chat)")
+		fmt.Println("[6] Exit")
 
-		fmt.Print("\nEnter choice (1-5): ")
+		fmt.Print("\nEnter choice (1-6): ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			continue
 		}
 		input = strings.TrimSpace(input)
 		choice, err := strconv.Atoi(input)
-		if err != nil || choice < 1 || choice > 5 {
-			fmt.Println("❌ Invalid choice, please enter a number between 1 and 5.")
+		if err != nil || choice < 1 || choice > 6 {
+			fmt.Println("❌ Invalid choice, please enter a number between 1 and 6.")
 			continue
 		}
 
-		if choice == 5 {
+		if choice == 6 {
 			fmt.Println("Goodbye!")
 			return
 		}
@@ -99,6 +100,8 @@ func main() {
 		case 3:
 			startPrompt = "I want to install or copy some agent skills into a directory (like ~/.agents/skills or a custom project path). Please help me do this."
 		case 4:
+			startPrompt = "I want to run agents-cli update to update skills, and if they changed, rewrite/adapt them for Go ADK v2.0."
+		case 5:
 			startPrompt = "Hello! I want to talk with you about Go ADK v2.0 or general code generation."
 		}
 

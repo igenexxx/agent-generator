@@ -96,8 +96,9 @@ Select an option:
 [1] Scaffold a new Go ADK v2.0 Agent project
 [2] Generate OKF Documentation Bundle
 [3] Install or Copy Agent Skills (Global/Local)
-[4] Talk with the Assistant (Free Chat)
-[5] Exit
+[4] Update agents-cli skills and rewrite them for Go ADK v2.0
+[5] Talk with the Assistant (Free Chat)
+[6] Exit
 ```
 
 #### Option 1: Scaffold a Go Agent
@@ -123,11 +124,31 @@ The agent calls `generate_okf_wiki` and writes `index.md`, `log.md`, and the for
 Copies the embedded `.md` skills to your global workspace directory or a local project.
 The agent asks for the destination path (defaults to global path `~/.agents/skills`) and which skills to copy (or all if left empty), then invokes `install_skills`.
 
+#### Option 4: Update & Rewrite Skills
+Triggers the `update_agents_cli` tool, which runs `agents-cli update` (installing `uv`/`uvx` and `agents-cli` as fallbacks if missing). If skills are updated, the agent is directed to use `web_search` and `fetch_url` to research the new/updated skills from GitHub or docs, and rewrite/adapt them for Go ADK v2.0.
+
+---
+
+## 🛠️ Tool Catalog
+
+In addition to scaffolding, the agent is equipped with network gathering tools:
+*   `update_agents_cli`: Automates skill updates using `agents-cli` and `uv`.
+*   `fetch_url`: Downloads web pages (e.g. GitHub documentation) and parses HTML into clean text.
+*   `web_search`: Queries Google Custom Search (if API key/CX are set) or falls back to DuckDuckGo and Wikipedia search APIs.
+
+---
+
+## 🔌 MCP Integration
+
+If a GitHub Personal Access Token (`GITHUB_PAT` or `GITHUB_TOKEN`) is set in the environment, the manager agent automatically checks the availability of the GitHub MCP server (`https://api.githubcopilot.com/mcp/`).
+
+If reachable, it dynamically registers the GitHub MCP toolset, granting the agent native capability to read repositories, search GitHub, examine commit histories, and execute GitHub operations directly.
+
 ---
 
 ## 🧪 Testing
 
-The unit tests follow strict Go standards, validating boundary conditions, negative scenarios (missing folders, invalid schemas), and context cancellations.
+The unit tests follow strict Go standards, validating boundary conditions, negative scenarios (missing folders, invalid schemas), web mocks, and context cancellations.
 
 Run the test suite:
 ```bash

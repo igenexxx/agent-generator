@@ -204,3 +204,58 @@ func main() {
 	}
 }
 ```
+
+## Structured Output (OutputSchema and OutputKey)
+
+To return predictable structured JSON from an LLM agent:
+1. Define a Go struct with `json` tags.
+2. Manually define the matching `*genai.Schema` using type/fields from `google.golang.org/genai`.
+3. Set `OutputSchema` and `OutputKey` in `llmagent.Config`.
+4. Use a JSON marshal/unmarshal helper to extract the parsed `map[string]any` from session state back into your typed Go struct.
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
+)
+
+type Product struct {
+	Name  string  `json:"name"`
+	Price float64 `json:"price"`
+}
+
+var productSchema = &genai.Schema{
+	Type: genai.TypeObject,
+	Properties: map[string]*genai.Schema{
+		"name":  {Type: genai.TypeString, Description: "Product name"},
+		"price": {Type: genai.TypeNumber, Description: "Product price in USD"},
+	},
+	Required: []string{"name", "price"},
+}
+
+// Attach to agent config:
+// llmagent.Config{
+//     OutputSchema: productSchema,
+//     OutputKey:    "extracted_product",
+// }
+
+// Helper to retrieve structured output from state:
+func GetSessionOutput[T any](state session.State, key string) (T, error) {
+	var result T
+	val, err := state.Get(key)
+	if err != nil {
+		return result, err
+	}
+	bytes, err := json.Marshal(val)
+	if err != nil {
+		return result, err
+	}
+	err = json.Unmarshal(bytes, &result)
+	return result, err
+}
+```
+

@@ -177,3 +177,89 @@ import _ "embed"
 //go:embed prompt.md
 var systemInstruction string
 ```
+
+---
+
+## 7. Structured Output (`OutputSchema` and `OutputKey`)
+
+To enforce machine-readable JSON output from an `LlmAgent`, define a Go struct for your data and a matching `*genai.Schema` structure.
+
+### Defining Schema and Struct
+
+```go
+import "google.golang.org/genai"
+
+// Go struct with json tags
+type ProductInfo struct {
+	ProductName string  `json:"product_name"`
+	Price       float64 `json:"price"`
+	Color       string  `json:"color"`
+}
+
+// Corresponding genai schema configuration
+var productInfoSchema = &genai.Schema{
+	Type: genai.TypeObject,
+	Properties: map[string]*genai.Schema{
+		"product_name": {
+			Type:        genai.TypeString,
+			Description: "The name of the product",
+		},
+		"price": {
+			Type:        genai.TypeNumber,
+			Description: "The price in USD",
+		},
+		"color": {
+			Type:        genai.TypeString,
+			Description: "Product color, default is 'Not specified'",
+			Default:     "Not specified",
+		},
+	},
+	Required: []string{"product_name", "price"},
+}
+```
+
+### Attaching to LlmAgent
+
+Attach the schema to `llmagent.Config` using `OutputSchema`. Additionally, specify `OutputKey` to store the validated output in session state.
+
+```go
+import "google.golang.org/adk/v2/agent/llmagent"
+
+extractorAgent, err := llmagent.New(llmagent.Config{
+	Name:         "product_extractor",
+	Model:        model,
+	Instruction:  "Extract product info. Output ONLY valid JSON matching the schema.",
+	OutputSchema: productInfoSchema,
+	OutputKey:    "extracted_product",
+})
+```
+
+### Retrieving and Unmarshalling Session Output
+
+Use a JSON marshal/unmarshal helper to extract the parsed `map[string]any` from session state back into your typed Go struct:
+
+```go
+import (
+	"encoding/json"
+	"fmt"
+	"google.golang.org/adk/v2/session"
+)
+
+func GetSessionOutput[T any](state session.State, key string) (T, error) {
+	var result T
+	val, err := state.Get(key)
+	if err != nil {
+		return result, err
+	}
+	bytes, err := json.Marshal(val)
+	if err != nil {
+		return result, err
+	}
+	err = json.Unmarshal(bytes, &result)
+	return result, err
+}
+
+// In a custom tool or callback (where ctx is agent.Context or tool.Context):
+product, err := GetSessionOutput[ProductInfo](ctx.State(), "extracted_product")
+```
+
