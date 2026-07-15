@@ -259,3 +259,62 @@ func GetSessionOutput[T any](state session.State, key string) (T, error) {
 }
 ```
 
+## Optimized Model Configurations (Factual vs Creative Agents)
+
+Demonstrates how to configure model parameters (`Temperature`, `MaxOutputTokens`, `TopP`, `TopK`, and `SafetySettings`) under `llmagent.Config`:
+
+```go
+package main
+
+import (
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/genai"
+)
+
+// Low-temperature, highly consistent factual extractor agent using Gemini 2.5 Flash
+func NewFactualAgent(model agent.AgentModel) (agent.Agent, error) {
+	return llmagent.New(llmagent.Config{
+		Name:        "data_extractor",
+		Model:       model,
+		Description: "Precise factual data extraction agent.",
+		Instruction: "Extract facts exactly as stated. Do not make assumptions.",
+		GenerateContentConfig: &genai.GenerateContentConfig{
+			Temperature:     genai.Ptr(float32(0.1)), // Low temp for consistency
+			MaxOutputTokens: 500,
+			TopP:            genai.Ptr(float32(0.8)),
+			TopK:            genai.Ptr(float32(10)),
+			SafetySettings: []*genai.SafetySetting{
+				{
+					Category:  genai.HarmCategoryDangerousContent,
+					Threshold: genai.HarmBlockThresholdBlockLowAndAbove,
+				},
+			},
+		},
+	})
+}
+
+// High-temperature creative brainstorming agent using Gemini 2.5 Pro
+func NewCreativeAgent(model agent.AgentModel) (agent.Agent, error) {
+	return llmagent.New(llmagent.Config{
+		Name:        "creative_brainstormer",
+		Model:       model,
+		Description: "Generates creative ideas and explores options.",
+		Instruction: "Generate innovative, diverse, and imaginative ideas.",
+		GenerateContentConfig: &genai.GenerateContentConfig{
+			Temperature:     genai.Ptr(float32(0.9)), // High temp for creativity
+			MaxOutputTokens: 2000,
+			TopP:            genai.Ptr(float32(0.95)),
+			TopK:            genai.Ptr(float32(40)),
+			SafetySettings: []*genai.SafetySetting{
+				{
+					Category:  genai.HarmCategoryDangerousContent,
+					Threshold: genai.HarmBlockThresholdBlockMediumAndAbove,
+				},
+			},
+		},
+	})
+}
+```
+
+

@@ -263,3 +263,45 @@ func GetSessionOutput[T any](state session.State, key string) (T, error) {
 product, err := GetSessionOutput[ProductInfo](ctx.State(), "extracted_product")
 ```
 
+---
+
+## 8. Model Configuration (`GenerateContentConfig` and `SafetySettings`)
+
+To optimize agent costs, latency, and consistency, customize the model configuration via `GenerateContentConfig` in `llmagent.Config`.
+
+### Config Setup and Safety Settings
+
+```go
+import (
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/genai"
+)
+
+// Configure model settings, temperature, token limits, and safety settings
+supportAgent, err := llmagent.New(llmagent.Config{
+	Name:        "support_agent",
+	Model:       model,
+	Instruction: "Answer customer questions clearly and safely.",
+	GenerateContentConfig: &genai.GenerateContentConfig{
+		// Temperature is a pointer to float32. Use genai.Ptr helper.
+		Temperature:     genai.Ptr(float32(0.2)), 
+		MaxOutputTokens: 600,
+		SafetySettings: []*genai.SafetySetting{
+			{
+				Category:  genai.HarmCategoryHarassment,
+				Threshold: genai.HarmBlockThresholdBlockLowAndAbove,
+			},
+			{
+				Category:  genai.HarmCategoryHateSpeech,
+				Threshold: genai.HarmBlockThresholdBlockLowAndAbove,
+			},
+			{
+				Category:  genai.HarmCategoryDangerousContent,
+				Threshold: genai.HarmBlockThresholdBlockMediumAndAbove,
+			},
+		},
+	},
+})
+```
+
+
