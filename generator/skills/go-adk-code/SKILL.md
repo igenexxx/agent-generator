@@ -304,4 +304,76 @@ supportAgent, err := llmagent.New(llmagent.Config{
 })
 ```
 
+---
+
+## 9. Model Thinking & BuiltInPlanner (Chain-of-Thought Interception)
+
+To enable Gemini's native thinking features and replicate Python ADK's `BuiltInPlanner` logic (logging or hiding intermediate thoughts from the user), configure `ThinkingConfig` and use `AfterModelCallbacks` to filter the output parts:
+
+```go
+import (
+	"log"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/model"
+	"google.golang.org/genai"
+)
+
+func CreateThoughtfulAgent(m model.LLM) (agent.Agent, error) {
+	return llmagent.New(llmagent.Config{
+		Name:        "thoughtful_agent",
+		Model:       m,
+		Instruction: "Solve the logic problem step-by-step.",
+		GenerateContentConfig: &genai.GenerateContentConfig{
+			ThinkingConfig: &genai.ThinkingConfig{
+				IncludeThoughts: true,
+				ThinkingBudget:  genai.Ptr(int32(1024)),
+			},
+		},
+		// Clear thoughts from conversation history to prevent Gemini API validation errors (replicates _remove_thought_from_request)
+		BeforeModelCallbacks: []llmagent.BeforeModelCallback{
+			func(ctx agent.Context, req *model.LLMRequest) (*model.LLMRequest, error) {
+				if req == nil || req.Contents == nil {
+					return req, nil
+				}
+				for _, content := range req.Contents {
+					if content.Parts == nil {
+						continue
+					}
+					for _, part := range content.Parts {
+						part.Thought = false
+					}
+				}
+				return req, nil
+			},
+		},
+		// Callback to intercept intermediate reasoning thoughts
+		AfterModelCallbacks: []llmagent.AfterModelCallback{
+			func(ctx agent.Context, resp *model.LLMResponse, err error) (*model.LLMResponse, error) {
+				if err != nil {
+					return nil, err
+				}
+				if resp == nil || resp.Content == nil {
+					return resp, nil
+				}
+				var filteredParts []*genai.Part
+				for _, part := range resp.Content.Parts {
+					if part.Thought {
+						// Log reasoning for debugging/observability
+						log.Printf("[🧠 Thinking]: %s", part.Text)
+						// Skip to hide thoughts from the final user response
+						continue 
+					}
+					filteredParts = append(filteredParts, part)
+				}
+				resp.Content.Parts = filteredParts
+				return resp, nil
+			},
+		},
+	})
+}
+```
+
+
+
 

@@ -25,11 +25,12 @@ node := workflow.NewEmittingFunctionNode("process", func(ctx agent.Context, in J
 ```
 
 ### Agent & Tool Nodes
-Wraps an `agent.Agent` or a `tool.Tool` directly as a graph step:
+Wraps an `agent.Agent` or a `tool.Tool` directly as a graph step (node names are inferred from the agent/tool name):
 ```go
-agentNode := workflow.NewAgentNode("sub_agent", subAgent, cfg)
-toolNode  := workflow.NewToolNode("my_tool", myTool, cfg)
+agentNode, err := workflow.NewAgentNode(subAgent, cfg)
+toolNode, err  := workflow.NewToolNode(myTool, cfg)
 ```
+
 
 ### Join Node
 Fan-in barrier that blocks execution until all predecessor nodes finish, returning a map of their outputs:
