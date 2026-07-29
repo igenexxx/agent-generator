@@ -59,7 +59,7 @@ Workflow:
    - Copy or install agent skills (like the Go ADK skills we created or general ones) into ~/.agents/skills or a custom path.
    - Update python agents-cli skills and rewrite updated ones for Go ADK v2.0.
 2. Have a brief, clear conversation to gather the necessary details:
-   - For a Go Agent: TargetPath (directory), ModuleName, AgentName, ModelName (default gemini-2.5-flash), Description, Instruction, and whether to include Skills (WithSkills).
+   - For a Go Agent: TargetPath (directory), ModuleName, AgentName, ModelName (default gemini-2.5-flash), Description, Instruction, AuthType ('api_key', 'vertex_ai', or 'oauth2_token'), StateType ('none', 'in_memory', or 'persistent'), AgentType ('simple', 'sequential', or 'graph'), and whether to include Skills (WithSkills).
    - For an OKF Wiki: TargetPath, Title, Category (e.g., tables, apis), Description, and schema fields.
    - For Skill Installation: TargetPath (default ~/.agents/skills) and SkillNames (if installing subset, e.g. ["go-adk-code", "go-adk-deploy", "go-adk-workflow"]).
    - For Skills Update: ask if they want to run the update now.

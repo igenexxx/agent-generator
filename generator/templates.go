@@ -11,12 +11,10 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
-	"google.golang.org/genai"
 
-	"google.golang.org/adk/v2/agent"
+	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/cmd/launcher"
 	"google.golang.org/adk/v2/cmd/launcher/full"
-	"google.golang.org/adk/v2/model/gemini"
 
 	"{{.ModuleName}}/agent"
 )
@@ -27,42 +25,13 @@ func main() {
 
 	ctx := context.Background()
 
-	apiKey := os.Getenv("GOOGLE_API_KEY")
-	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
-	}
-	if apiKey == "" {
-		apiKey = os.Getenv("GENAI_API_KEY")
-	}
-
-	modelName := os.Getenv("GEMINI_MODEL")
-	if modelName == "" {
-		modelName = "{{.ModelName}}"
-	}
-
-	clientConfig := &genai.ClientConfig{
-		APIKey: apiKey,
-	}
-
-	// Support Vertex AI dynamically
-	if os.Getenv("GOOGLE_GENAI_USE_VERTEXAI") == "1" {
-		clientConfig.Backend = genai.BackendVertexAI
-		clientConfig.Project = os.Getenv("GOOGLE_CLOUD_PROJECT")
-		clientConfig.Location = os.Getenv("GOOGLE_CLOUD_LOCATION")
-	}
-
-	model, err := gemini.NewModel(ctx, modelName, clientConfig)
-	if err != nil {
-		log.Fatalf("Failed to create model: %v", err)
-	}
-
-	rootAgent, err := agent.NewAgent(model)
+	rootAgent, err := agent.NewAgent(ctx)
 	if err != nil {
 		log.Fatalf("Failed to create agent: %v", err)
 	}
 
 	config := &launcher.Config{
-		AgentLoader: agent.NewSingleLoader(rootAgent),
+		AgentLoader: adkagent.NewSingleLoader(rootAgent),
 	}
 
 	l := full.NewLauncher()
@@ -72,7 +41,7 @@ func main() {
 }
 `
 
-// AgentTemplate is the template for agent/agent.go without skills.
+// AgentTemplate is the template for agent/agent.go for simple agents.
 const AgentTemplate = `package agent
 
 import (
@@ -88,28 +57,54 @@ import (
 
 // Config holds the configuration options for NewAgentWithConfig.
 type Config struct {
-	ModelName   string
-	APIKey      string
-	AgentName   string
-	Instruction string
-	VertexAI    bool
-	Project     string
-	Location    string
+	ModelName       string
+	APIKey          string
+	AgentName       string
+	Instruction     string
+	VertexAI        bool
+	Project         string
+	Location        string
+	CredentialsFile string
 }
+
+{{if ne .StateType "none"}}
+// StateParams demonstrates session state binding struct tags.
+type StateParams struct {
+	SessionID string ` + "`" + `state:"session_id"` + "`" + `
+	UserID    string ` + "`" + `state:"user_id"` + "`" + `
+}
+{{end}}
 
 // NewAgent creates a new ADK agent with defaults from environment variables.
 func NewAgent(ctx context.Context) (agent.Agent, error) {
+	modelName := os.Getenv("GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "{{.ModelName}}"
+	}
+
+	{{if eq .AuthType "vertex_ai"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:   modelName,
+		AgentName:   "{{.AgentName}}",
+		Instruction: "{{.Instruction}}",
+		VertexAI:    true,
+		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
+	})
+	{{else if eq .AuthType "oauth2_token"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:       modelName,
+		AgentName:       "{{.AgentName}}",
+		Instruction:     "{{.Instruction}}",
+		CredentialsFile: os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+	})
+	{{else}}
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 	if apiKey == "" {
 		apiKey = os.Getenv("GENAI_API_KEY")
-	}
-
-	modelName := os.Getenv("GEMINI_MODEL")
-	if modelName == "" {
-		modelName = "{{.ModelName}}"
 	}
 
 	var isVertex bool
@@ -126,27 +121,51 @@ func NewAgent(ctx context.Context) (agent.Agent, error) {
 		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
 	})
+	{{end}}
 }
 
 // NewAgentWithConfig creates a new ADK agent using explicit config parameters.
 func NewAgentWithConfig(ctx context.Context, cfg Config) (agent.Agent, error) {
-	if cfg.APIKey == "" {
+	clientConfig := &genai.ClientConfig{}
+
+	{{if eq .AuthType "vertex_ai"}}
+	if cfg.Project == "" {
+		cfg.Project = os.Getenv("GOOGLE_CLOUD_PROJECT")
+	}
+	if cfg.Location == "" {
+		cfg.Location = os.Getenv("GOOGLE_CLOUD_LOCATION")
+	}
+	clientConfig.Backend = genai.BackendVertexAI
+	clientConfig.Project = cfg.Project
+	clientConfig.Location = cfg.Location
+	{{else if eq .AuthType "oauth2_token"}}
+	if cfg.CredentialsFile == "" {
+		cfg.CredentialsFile = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	}
+	if cfg.CredentialsFile != "" {
+		clientConfig.CredentialsFile = cfg.CredentialsFile
+	} else if cfg.APIKey != "" {
+		clientConfig.APIKey = cfg.APIKey
+	} else {
+		return nil, fmt.Errorf("missing Google Application Credentials or API Key")
+	}
+	{{else}}
+	if cfg.APIKey == "" && !cfg.VertexAI {
 		return nil, fmt.Errorf("missing Gemini API Key (ensure GOOGLE_API_KEY, GEMINI_API_KEY or GENAI_API_KEY is set)")
 	}
+	clientConfig.APIKey = cfg.APIKey
+	if cfg.VertexAI {
+		clientConfig.Backend = genai.BackendVertexAI
+		clientConfig.Project = cfg.Project
+		clientConfig.Location = cfg.Location
+	}
+	{{end}}
+
 	if cfg.ModelName == "" {
 		cfg.ModelName = "{{.ModelName}}"
 	}
 	if cfg.AgentName == "" {
 		cfg.AgentName = "simple-agent"
-	}
-
-	clientConfig := &genai.ClientConfig{
-		APIKey: cfg.APIKey,
-	}
-	if cfg.VertexAI {
-		clientConfig.Backend = genai.BackendVertexAI
-		clientConfig.Project = cfg.Project
-		clientConfig.Location = cfg.Location
 	}
 
 	model, err := gemini.NewModel(ctx, cfg.ModelName, clientConfig)
@@ -192,28 +211,54 @@ var skillsFS embed.FS
 
 // Config holds the configuration options for NewAgentWithConfig.
 type Config struct {
-	ModelName   string
-	APIKey      string
-	AgentName   string
-	Instruction string
-	VertexAI    bool
-	Project     string
-	Location    string
+	ModelName       string
+	APIKey          string
+	AgentName       string
+	Instruction     string
+	VertexAI        bool
+	Project         string
+	Location        string
+	CredentialsFile string
 }
+
+{{if ne .StateType "none"}}
+// StateParams demonstrates session state binding struct tags.
+type StateParams struct {
+	SessionID string ` + "`" + `state:"session_id"` + "`" + `
+	UserID    string ` + "`" + `state:"user_id"` + "`" + `
+}
+{{end}}
 
 // NewAgent creates a new ADK agent with defaults from environment variables.
 func NewAgent(ctx context.Context) (agent.Agent, error) {
+	modelName := os.Getenv("GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "{{.ModelName}}"
+	}
+
+	{{if eq .AuthType "vertex_ai"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:   modelName,
+		AgentName:   "{{.AgentName}}",
+		Instruction: "{{.Instruction}}",
+		VertexAI:    true,
+		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
+	})
+	{{else if eq .AuthType "oauth2_token"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:       modelName,
+		AgentName:       "{{.AgentName}}",
+		Instruction:     "{{.Instruction}}",
+		CredentialsFile: os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+	})
+	{{else}}
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 	if apiKey == "" {
 		apiKey = os.Getenv("GENAI_API_KEY")
-	}
-
-	modelName := os.Getenv("GEMINI_MODEL")
-	if modelName == "" {
-		modelName = "{{.ModelName}}"
 	}
 
 	var isVertex bool
@@ -230,27 +275,51 @@ func NewAgent(ctx context.Context) (agent.Agent, error) {
 		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
 	})
+	{{end}}
 }
 
 // NewAgentWithConfig creates a new ADK agent using explicit config parameters.
 func NewAgentWithConfig(ctx context.Context, cfg Config) (agent.Agent, error) {
-	if cfg.APIKey == "" {
+	clientConfig := &genai.ClientConfig{}
+
+	{{if eq .AuthType "vertex_ai"}}
+	if cfg.Project == "" {
+		cfg.Project = os.Getenv("GOOGLE_CLOUD_PROJECT")
+	}
+	if cfg.Location == "" {
+		cfg.Location = os.Getenv("GOOGLE_CLOUD_LOCATION")
+	}
+	clientConfig.Backend = genai.BackendVertexAI
+	clientConfig.Project = cfg.Project
+	clientConfig.Location = cfg.Location
+	{{else if eq .AuthType "oauth2_token"}}
+	if cfg.CredentialsFile == "" {
+		cfg.CredentialsFile = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	}
+	if cfg.CredentialsFile != "" {
+		clientConfig.CredentialsFile = cfg.CredentialsFile
+	} else if cfg.APIKey != "" {
+		clientConfig.APIKey = cfg.APIKey
+	} else {
+		return nil, fmt.Errorf("missing Google Application Credentials or API Key")
+	}
+	{{else}}
+	if cfg.APIKey == "" && !cfg.VertexAI {
 		return nil, fmt.Errorf("missing Gemini API Key (ensure GOOGLE_API_KEY, GEMINI_API_KEY or GENAI_API_KEY is set)")
 	}
+	clientConfig.APIKey = cfg.APIKey
+	if cfg.VertexAI {
+		clientConfig.Backend = genai.BackendVertexAI
+		clientConfig.Project = cfg.Project
+		clientConfig.Location = cfg.Location
+	}
+	{{end}}
+
 	if cfg.ModelName == "" {
 		cfg.ModelName = "{{.ModelName}}"
 	}
 	if cfg.AgentName == "" {
 		cfg.AgentName = "simple-agent"
-	}
-
-	clientConfig := &genai.ClientConfig{
-		APIKey: cfg.APIKey,
-	}
-	if cfg.VertexAI {
-		clientConfig.Backend = genai.BackendVertexAI
-		clientConfig.Project = cfg.Project
-		clientConfig.Location = cfg.Location
 	}
 
 	model, err := gemini.NewModel(ctx, cfg.ModelName, clientConfig)
@@ -292,6 +361,346 @@ func NewAgentWithConfig(ctx context.Context, cfg Config) (agent.Agent, error) {
 	return a, nil
 }
 `
+
+// AgentSequentialTemplate is the template for agent/agent.go for sequential agents.
+const AgentSequentialTemplate = `package agent
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/model/gemini"
+	"google.golang.org/adk/v2/workflow"
+	"google.golang.org/genai"
+)
+
+// Config holds the configuration options for NewAgentWithConfig.
+type Config struct {
+	ModelName       string
+	APIKey          string
+	AgentName       string
+	Instruction     string
+	VertexAI        bool
+	Project         string
+	Location        string
+	CredentialsFile string
+}
+
+{{if ne .StateType "none"}}
+// StateParams demonstrates session state binding struct tags.
+type StateParams struct {
+	SessionID string ` + "`" + `state:"session_id"` + "`" + `
+	UserID    string ` + "`" + `state:"user_id"` + "`" + `
+}
+{{end}}
+
+// NewAgent creates a new ADK agent with defaults from environment variables.
+func NewAgent(ctx context.Context) (agent.Agent, error) {
+	modelName := os.Getenv("GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "{{.ModelName}}"
+	}
+
+	{{if eq .AuthType "vertex_ai"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:   modelName,
+		AgentName:   "{{.AgentName}}",
+		Instruction: "{{.Instruction}}",
+		VertexAI:    true,
+		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
+	})
+	{{else if eq .AuthType "oauth2_token"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:       modelName,
+		AgentName:       "{{.AgentName}}",
+		Instruction:     "{{.Instruction}}",
+		CredentialsFile: os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+	})
+	{{else}}
+	apiKey := os.Getenv("GOOGLE_API_KEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("GEMINI_API_KEY")
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("GENAI_API_KEY")
+	}
+
+	var isVertex bool
+	if os.Getenv("GOOGLE_GENAI_USE_VERTEXAI") == "1" {
+		isVertex = true
+	}
+
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:   modelName,
+		APIKey:      apiKey,
+		AgentName:   "{{.AgentName}}",
+		Instruction: "{{.Instruction}}",
+		VertexAI:    isVertex,
+		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
+	})
+	{{end}}
+}
+
+// NewAgentWithConfig creates a new ADK agent using explicit config parameters.
+func NewAgentWithConfig(ctx context.Context, cfg Config) (agent.Agent, error) {
+	clientConfig := &genai.ClientConfig{}
+
+	{{if eq .AuthType "vertex_ai"}}
+	if cfg.Project == "" {
+		cfg.Project = os.Getenv("GOOGLE_CLOUD_PROJECT")
+	}
+	if cfg.Location == "" {
+		cfg.Location = os.Getenv("GOOGLE_CLOUD_LOCATION")
+	}
+	clientConfig.Backend = genai.BackendVertexAI
+	clientConfig.Project = cfg.Project
+	clientConfig.Location = cfg.Location
+	{{else if eq .AuthType "oauth2_token"}}
+	if cfg.CredentialsFile == "" {
+		cfg.CredentialsFile = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	}
+	if cfg.CredentialsFile != "" {
+		clientConfig.CredentialsFile = cfg.CredentialsFile
+	} else if cfg.APIKey != "" {
+		clientConfig.APIKey = cfg.APIKey
+	} else {
+		return nil, fmt.Errorf("missing Google Application Credentials or API Key")
+	}
+	{{else}}
+	if cfg.APIKey == "" && !cfg.VertexAI {
+		return nil, fmt.Errorf("missing Gemini API Key (ensure GOOGLE_API_KEY, GEMINI_API_KEY or GENAI_API_KEY is set)")
+	}
+	clientConfig.APIKey = cfg.APIKey
+	if cfg.VertexAI {
+		clientConfig.Backend = genai.BackendVertexAI
+		clientConfig.Project = cfg.Project
+		clientConfig.Location = cfg.Location
+	}
+	{{end}}
+
+	if cfg.ModelName == "" {
+		cfg.ModelName = "{{.ModelName}}"
+	}
+	if cfg.AgentName == "" {
+		cfg.AgentName = "sequential-agent"
+	}
+
+	model, err := gemini.NewModel(ctx, cfg.ModelName, clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize gemini model: %w", err)
+	}
+
+	planner, err := llmagent.New(llmagent.Config{
+		Name:        cfg.AgentName + "_planner",
+		Model:       model,
+		Description: "Sequential planning stage.",
+		Instruction: "Analyze task and build structured execution plan.",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create planner agent: %w", err)
+	}
+
+	executor, err := llmagent.New(llmagent.Config{
+		Name:        cfg.AgentName + "_executor",
+		Model:       model,
+		Description: "{{.Description}}",
+		Instruction: cfg.Instruction,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create executor agent: %w", err)
+	}
+
+	pNode, err := workflow.NewAgentNode(planner, workflow.NodeConfig{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create planner node: %w", err)
+	}
+
+	eNode, err := workflow.NewAgentNode(executor, workflow.NodeConfig{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create executor node: %w", err)
+	}
+
+	eb := workflow.NewEdgeBuilder()
+	eb.AddEdge(pNode, eNode)
+
+	seqGraph, err := workflow.NewGraph(pNode, eb.Build())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sequential workflow graph: %w", err)
+	}
+
+	return seqGraph, nil
+}
+`
+
+// AgentGraphTemplate is the template for agent/agent.go for graph-based agents.
+const AgentGraphTemplate = `package agent
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/model/gemini"
+	"google.golang.org/adk/v2/workflow"
+	"google.golang.org/genai"
+)
+
+// Config holds the configuration options for NewAgentWithConfig.
+type Config struct {
+	ModelName       string
+	APIKey          string
+	AgentName       string
+	Instruction     string
+	VertexAI        bool
+	Project         string
+	Location        string
+	CredentialsFile string
+}
+
+{{if ne .StateType "none"}}
+// StateParams demonstrates session state binding struct tags.
+type StateParams struct {
+	SessionID string ` + "`" + `state:"session_id"` + "`" + `
+	UserID    string ` + "`" + `state:"user_id"` + "`" + `
+}
+{{end}}
+
+// NewAgent creates a new ADK agent with defaults from environment variables.
+func NewAgent(ctx context.Context) (agent.Agent, error) {
+	modelName := os.Getenv("GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "{{.ModelName}}"
+	}
+
+	{{if eq .AuthType "vertex_ai"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:   modelName,
+		AgentName:   "{{.AgentName}}",
+		Instruction: "{{.Instruction}}",
+		VertexAI:    true,
+		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
+	})
+	{{else if eq .AuthType "oauth2_token"}}
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:       modelName,
+		AgentName:       "{{.AgentName}}",
+		Instruction:     "{{.Instruction}}",
+		CredentialsFile: os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+	})
+	{{else}}
+	apiKey := os.Getenv("GOOGLE_API_KEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("GEMINI_API_KEY")
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("GENAI_API_KEY")
+	}
+
+	var isVertex bool
+	if os.Getenv("GOOGLE_GENAI_USE_VERTEXAI") == "1" {
+		isVertex = true
+	}
+
+	return NewAgentWithConfig(ctx, Config{
+		ModelName:   modelName,
+		APIKey:      apiKey,
+		AgentName:   "{{.AgentName}}",
+		Instruction: "{{.Instruction}}",
+		VertexAI:    isVertex,
+		Project:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		Location:    os.Getenv("GOOGLE_CLOUD_LOCATION"),
+	})
+	{{end}}
+}
+
+// NewAgentWithConfig creates a new ADK agent using explicit config parameters.
+func NewAgentWithConfig(ctx context.Context, cfg Config) (agent.Agent, error) {
+	clientConfig := &genai.ClientConfig{}
+
+	{{if eq .AuthType "vertex_ai"}}
+	if cfg.Project == "" {
+		cfg.Project = os.Getenv("GOOGLE_CLOUD_PROJECT")
+	}
+	if cfg.Location == "" {
+		cfg.Location = os.Getenv("GOOGLE_CLOUD_LOCATION")
+	}
+	clientConfig.Backend = genai.BackendVertexAI
+	clientConfig.Project = cfg.Project
+	clientConfig.Location = cfg.Location
+	{{else if eq .AuthType "oauth2_token"}}
+	if cfg.CredentialsFile == "" {
+		cfg.CredentialsFile = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	}
+	if cfg.CredentialsFile != "" {
+		clientConfig.CredentialsFile = cfg.CredentialsFile
+	} else if cfg.APIKey != "" {
+		clientConfig.APIKey = cfg.APIKey
+	} else {
+		return nil, fmt.Errorf("missing Google Application Credentials or API Key")
+	}
+	{{else}}
+	if cfg.APIKey == "" && !cfg.VertexAI {
+		return nil, fmt.Errorf("missing Gemini API Key (ensure GOOGLE_API_KEY, GEMINI_API_KEY or GENAI_API_KEY is set)")
+	}
+	clientConfig.APIKey = cfg.APIKey
+	if cfg.VertexAI {
+		clientConfig.Backend = genai.BackendVertexAI
+		clientConfig.Project = cfg.Project
+		clientConfig.Location = cfg.Location
+	}
+	{{end}}
+
+	if cfg.ModelName == "" {
+		cfg.ModelName = "{{.ModelName}}"
+	}
+	if cfg.AgentName == "" {
+		cfg.AgentName = "graph-agent"
+	}
+
+	model, err := gemini.NewModel(ctx, cfg.ModelName, clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize gemini model: %w", err)
+	}
+
+	initNode := workflow.NewFunctionNode("initializer", func(c agent.Context, in string) (string, error) {
+		return "Request initialized: " + in, nil
+	}, workflow.NodeConfig{})
+
+	workerAgent, err := llmagent.New(llmagent.Config{
+		Name:        cfg.AgentName + "_worker",
+		Model:       model,
+		Description: "{{.Description}}",
+		Instruction: cfg.Instruction,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create worker agent: %w", err)
+	}
+
+	workerNode, err := workflow.NewAgentNode(workerAgent, workflow.NodeConfig{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create worker node: %w", err)
+	}
+
+	eb := workflow.NewEdgeBuilder()
+	eb.AddEdge(initNode, workerNode)
+
+	graphAgent, err := workflow.NewGraph(initNode, eb.Build())
+	if err != nil {
+		return nil, fmt.Errorf("failed to build workflow graph: %w", err)
+	}
+
+	return graphAgent, nil
+}
+`
+
 
 // AgentTestTemplate is the template for agent/agent_test.go.
 const AgentTestTemplate = `package agent

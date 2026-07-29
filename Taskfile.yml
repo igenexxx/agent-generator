@@ -19,4 +19,14 @@ tasks:
   build:
     desc: Build the binary
     cmds:
-      - go build -o bin/generator main.go
+      - go build -o bin/agentgenerator main.go
+
+  install:
+    desc: Install the binary globally
+    cmds:
+      - go install .
+
+
+
+
+

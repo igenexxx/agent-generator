@@ -55,6 +55,30 @@ func TestScaffoldGoAgent(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "happy path sequential agent with vertex_ai auth",
+			args: ScaffoldAgentArgs{
+				TargetPath: filepath.Join(tempDir, "seq_agent"),
+				ModuleName: "seq_agent_module",
+				AgentName:  "seq_agent",
+				AgentType:  "sequential",
+				AuthType:   "vertex_ai",
+				StateType:  "in_memory",
+			},
+			wantErr: false,
+		},
+		{
+			name: "happy path graph agent with state and oauth2 auth",
+			args: ScaffoldAgentArgs{
+				TargetPath: filepath.Join(tempDir, "graph_agent"),
+				ModuleName: "graph_agent_module",
+				AgentName:  "graph_agent",
+				AgentType:  "graph",
+				AuthType:   "oauth2_token",
+				StateType:  "persistent",
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -78,6 +102,16 @@ func TestScaffoldGoAgent(t *testing.T) {
 				goModPath := filepath.Join(tt.args.TargetPath, "go.mod")
 				if _, err := os.Stat(goModPath); os.IsNotExist(err) {
 					t.Errorf("go.mod was not generated at %s", goModPath)
+				}
+				mainPath := filepath.Join(tt.args.TargetPath, "main.go")
+				if data, err := os.ReadFile(mainPath); err == nil {
+					content := string(data)
+					if strings.Contains(content, "agent.NewAgent(model)") {
+						t.Errorf("main.go contains invalid agent.NewAgent(model) call")
+					}
+					if !strings.Contains(content, `adkagent "google.golang.org/adk/v2/agent"`) {
+						t.Errorf("main.go missing aliased adkagent import")
+					}
 				}
 			}
 		})

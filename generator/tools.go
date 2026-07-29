@@ -36,6 +36,9 @@ type ScaffoldAgentArgs struct {
 	Description string `json:"description" description:"A short description of what the agent does."`
 	Instruction string `json:"instruction" description:"Behavioral instruction prompts guiding the agent."`
 	WithSkills  bool   `json:"withSkills" description:"Whether to bundle the agent with dynamic skilltoolsets."`
+	AuthType    string `json:"authType" description:"Authentication type: 'api_key' (Gemini API Key), 'vertex_ai' (Google Cloud Vertex AI ADC), or 'oauth2_token' (OAuth2/Service Account). Defaults to 'api_key'."`
+	StateType   string `json:"stateType" description:"State management type: 'none' (Stateless), 'in_memory' (In-Memory session state), or 'persistent' (Database/Persistent state service stub). Defaults to 'none'."`
+	AgentType   string `json:"agentType" description:"Agent architecture pattern: 'simple' (Single LLM Agent), 'sequential' (Pipeline of multi-step agents), or 'graph' (Workflow graph with nodes & edges). Defaults to 'simple'."`
 }
 
 // ScaffoldAgentResult is the output of the scaffold tool.
@@ -55,7 +58,7 @@ type GenerateOKFArgs struct {
 
 // GenerateOKFResult is the output of the OKF generator.
 type GenerateOKFResult struct {
-	Status string `json:"status"`
+	Status string   `json:"status"`
 	Paths  []string `json:"paths"`
 }
 
@@ -137,6 +140,11 @@ func NewGenerateOKFTool() (tool.Tool, error) {
 }
 
 func scaffoldGoAgent(ctx agent.Context, args ScaffoldAgentArgs) (ScaffoldAgentResult, error) {
+	return ScaffoldGoAgent(ctx, args)
+}
+
+// ScaffoldGoAgent scaffolds a Go agent project using standard context.
+func ScaffoldGoAgent(ctx context.Context, args ScaffoldAgentArgs) (ScaffoldAgentResult, error) {
 	if args.TargetPath == "" {
 		return ScaffoldAgentResult{}, fmt.Errorf("targetPath is required")
 	}
@@ -152,6 +160,15 @@ func scaffoldGoAgent(ctx agent.Context, args ScaffoldAgentArgs) (ScaffoldAgentRe
 	if args.Instruction == "" {
 		args.Instruction = "You are a helpful assistant."
 	}
+	if args.AuthType == "" {
+		args.AuthType = "api_key"
+	}
+	if args.StateType == "" {
+		args.StateType = "none"
+	}
+	if args.AgentType == "" {
+		args.AgentType = "simple"
+	}
 
 	// Create directories
 	agentDir := filepath.Join(args.TargetPath, "agent")
@@ -165,6 +182,10 @@ func scaffoldGoAgent(ctx agent.Context, args ScaffoldAgentArgs) (ScaffoldAgentRe
 		"ModelName":   args.ModelName,
 		"Description": args.Description,
 		"Instruction": args.Instruction,
+		"AuthType":    args.AuthType,
+		"StateType":   args.StateType,
+		"AgentType":   args.AgentType,
+		"WithSkills":  args.WithSkills,
 		"APIKey":      "your_gemini_api_key_here",
 	}
 
@@ -174,13 +195,23 @@ func scaffoldGoAgent(ctx agent.Context, args ScaffoldAgentArgs) (ScaffoldAgentRe
 	}
 
 	// Write agent/agent.go
-	agentTemplate := AgentTemplate
-	if args.WithSkills {
-		agentTemplate = AgentWithSkillsTemplate
+	var agentTemplate string
+	switch strings.ToLower(args.AgentType) {
+	case "sequential":
+		agentTemplate = AgentSequentialTemplate
+	case "graph":
+		agentTemplate = AgentGraphTemplate
+	default:
+		if args.WithSkills {
+			agentTemplate = AgentWithSkillsTemplate
+		} else {
+			agentTemplate = AgentTemplate
+		}
 	}
 	if err := writeTemplate(filepath.Join(agentDir, "agent.go"), agentTemplate, data); err != nil {
 		return ScaffoldAgentResult{}, err
 	}
+
 
 	// Write agent/agent_test.go
 	if err := writeTemplate(filepath.Join(agentDir, "agent_test.go"), AgentTestTemplate, data); err != nil {
@@ -233,6 +264,11 @@ func scaffoldGoAgent(ctx agent.Context, args ScaffoldAgentArgs) (ScaffoldAgentRe
 }
 
 func generateOKFWiki(ctx agent.Context, args GenerateOKFArgs) (GenerateOKFResult, error) {
+	return GenerateOKFWiki(ctx, args)
+}
+
+// GenerateOKFWiki generates OKF docs using standard context.
+func GenerateOKFWiki(ctx context.Context, args GenerateOKFArgs) (GenerateOKFResult, error) {
 	if args.TargetPath == "" {
 		return GenerateOKFResult{}, fmt.Errorf("targetPath is required")
 	}
@@ -354,6 +390,11 @@ func NewInstallSkillsTool() (tool.Tool, error) {
 }
 
 func installSkills(ctx agent.Context, args InstallSkillsArgs) (InstallSkillsResult, error) {
+	return InstallSkills(ctx, args)
+}
+
+// InstallSkills installs skills using standard context.
+func InstallSkills(ctx context.Context, args InstallSkillsArgs) (InstallSkillsResult, error) {
 	if args.TargetPath == "" {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -441,6 +482,11 @@ const (
 )
 
 func updateAgentsCLI(ctx agent.Context, args UpdateAgentsCLIArgs) (UpdateAgentsCLIResult, error) {
+	return UpdateAgentsCLI(ctx, args)
+}
+
+// UpdateAgentsCLI runs agents-cli update using standard context.
+func UpdateAgentsCLI(ctx context.Context, args UpdateAgentsCLIArgs) (UpdateAgentsCLIResult, error) {
 	_, err := exec.LookPath("agents-cli")
 	if err == nil {
 		cmd := exec.CommandContext(ctx, "agents-cli", "update")
